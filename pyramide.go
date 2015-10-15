@@ -9,11 +9,15 @@ import (
 	"github.com/gromnsk/tree"
 	"github.com/takama/router"
 	"strconv"
+	"encoding/json"
+	"io/ioutil"
 	// "net/http"
 	"fmt"
 	// "net/url"
 	// "encoding/json"
 )
+
+var path = "/var/lib/pyramide/nodes.json"
 
 type Result struct {
 	Success bool
@@ -24,6 +28,11 @@ func main() {
 	root := new(tree.Tree)
 	data := tree.Data{Id: 1}
 	node := root.Insert(data)
+
+	// for index := 2; index < 50000; index++ {
+	// 	data := tree.Data{Id: index}
+	// 	node.Insert(data)
+	// }
 	
 	fmt.Println("Started!")
 	r := router.New()
@@ -81,6 +90,24 @@ func main() {
         c.Code(200).Body(referrerNode.GetData())
     })
 
+    // GET all nodes from some node with level limit
+    r.GET("/nodes/:id/:level", func(c *router.Control) {
+		c.UseTimer()
+    	Id, err := strconv.Atoi(c.Get(":id"))
+    	if err != nil {
+			// TODO catch error
+		}
+
+    	Level, err := strconv.Atoi(c.Get(":level"))
+    	if err != nil {
+			// TODO catch error
+		}
+
+		referrerNode := node.Search(Id)
+
+        c.Code(200).Body(referrerNode.GetNodes(Level))
+    })
+
     // GET balance for current node
     r.GET("/balance/:id", func(c *router.Control) {
 		c.UseTimer()
@@ -88,22 +115,43 @@ func main() {
     	if err != nil {
 			// TODO catch error
 		}
+		
+		referrerNode := node.Search(Id)
+		data := referrerNode.GetNodes(8)
 
-    	findedNode := node.Search(Id)
+        c.Code(200).Body(len(data))
+    })
 
-		counter := 0
-
-		ch := make(chan int)
-		go func() {
-			findedNode.Count(ch)
-			close(ch)
-		}()
-
-		for value := range ch {
-			counter += value
+    // GET balance for current node
+    r.GET("/dump", func(c *router.Control) {
+    	c.UseTimer()
+		data := node.GetNodes(10000)
+		j, jerr := json.MarshalIndent(data, "", "  ")
+		if jerr != nil {
+			fmt.Println("jerr:", jerr.Error())
 		}
 
-        c.Code(200).Body(counter)
+		ioutil.WriteFile(path, j, 0644)
+
+        c.Code(200).Body(len(data))
+    })
+
+    // GET balance for current node
+    r.GET("/restore", func(c *router.Control) {
+    	c.UseTimer()
+		data, err := ioutil.ReadFile(path)
+		if err != nil {
+			fmt.Println("error reading json: ", err.Error())
+		}
+		var restored []*tree.Result
+		jerr := json.Unmarshal(data, &restored)
+		if jerr != nil {
+			fmt.Println("jerr:", jerr.Error())
+		}
+
+		node.SetAllNodes(restored)
+
+        c.Code(200).Body(node)
     })
 
     r.Listen(":3333")
